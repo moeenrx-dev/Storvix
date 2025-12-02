@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>پنل حرفه‌ای انبار من - نسخه اپلیکیشن (نسخه اصلاح شده)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:tahoma;}
+body{background:#f3f4f8;color:#333;overflow-x:hidden;transition:background 0.3s,color 0.3s;}
+.dark-mode{background:#121212;color:#e0e0e0;}
+.topbar{background:#0d47a1;color:#fff;padding:13px 15px;font-size:20px;display:flex;justify-content:space-between;align-items:center;position:fixed;top:0;right:0;left:0;z-index:10;box-shadow:0 2px 8px rgba(0,0,0,0.2);border-bottom-left-radius:12px;border-bottom-right-radius:12px;}
+.menu-btn{font-size:26px;cursor:pointer;padding:5px 10px;line-height:1;order:2;}
+.topbar-title{flex:1;text-align:center;font-weight:bold;}
+.sidebar{position:fixed;top:0;right:-300px;width:300px;height:100%;background:#fff;box-shadow:-3px 0 15px rgba(0,0,0,0.15);padding:20px;transition:0.3s ease;z-index:999;overflow-y:auto;border-left:1px solid #ddd;border-radius:12px 0 0 12px;}
+.sidebar.open{right:0;}
+.sidebar a{display:block;padding:12px;margin-bottom:12px;background:#1976d2;color:#fff;text-decoration:none;border-radius:10px;text-align:center;transition:0.2s;box-shadow:0 3px 8px rgba(0,0,0,0.1);}
+.sidebar a:hover{background:#0d47a1;}
+.page{display:none;padding:20px;margin-top:70px;opacity:0;transition:opacity 0.4s;max-width:1200px;margin-left:auto;margin-right:auto;}
+.page.active{display:block;opacity:1;}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:18px;margin-top:20px;}
+.card{background:#fff;padding:25px 15px;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1);text-align:center;font-size:16px;font-weight:600;cursor:pointer;transition:0.3s;display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.card:hover{transform:translateY(-5px);box-shadow:0 8px 20px rgba(0,0,0,0.2);}
+input,select,button{width:100%;margin:8px 0;padding:10px;font-size:15px;border-radius:10px;border:1px solid #ccc;transition:0.2s;}
+input:focus,select:focus{border-color:#0d47a1;outline:none;box-shadow:0 0 5px rgba(13,71,161,0.3);}
+button{background:#1976d2;color:#fff;border:none;cursor:pointer;transition:0.2s;box-shadow:0 3px 8px rgba(0,0,0,0.1);}
+button:hover{background:#0d47a1;transform:translateY(-2px);}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;margin-top:15px;box-shadow:0 2px 8px rgba(0,0,0,0.05);}
+th,td{padding:12px;border-bottom:1px solid #ddd;text-align:center;}
+tr:hover{background:#f2f2f2;transition:0.2s;}
+.low-stock{background:#ffcccc;}
+.container{padding-top:20px;}
+.back-btn{margin:10px 0;padding:10px;font-size:14px;border-radius:8px;background:#0d47a1;color:#fff;border:none;cursor:pointer;transition:0.2s;box-shadow:0 2px 6px rgba(0,0,0,0.2);}
+.back-btn:hover{background:#1976d2;transform:translateY(-2px);}
+.search-input{margin-bottom:12px;padding:10px;border-radius:8px;border:1px solid #ccc;}
+.toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:#1976d2;color:#fff;padding:12px 24px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.2);opacity:0;transition:opacity 0.5s;z-index:9999;}
+.toast.show{opacity:1;}
+.modal-bg{position:fixed;top:0;right:0;left:0;bottom:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:1000;}
+.modal{background:#fff;padding:20px;border-radius:16px;max-width:400px;width:90%;box-shadow:0 6px 18px rgba(0,0,0,0.3);}
+.modal input{margin:6px 0;}
+.modal button{margin-top:10px;}
+img.prod-img{width:60px;height:60px;border-radius:10px;object-fit:cover;margin-left:8px;}
+.file-input{padding:6px;border-radius:8px;border:1px solid #ccc;cursor:pointer;}
+.small{width:auto;display:inline-block;padding:6px 10px;font-size:14px;}
+</style>
+<script>
+// ---------- داده‌ها ----------
+let inventoryData = JSON.parse(localStorage.getItem('inventoryData')) || [];
+let logs = JSON.parse(localStorage.getItem('logs')) || [];
+let darkMode = JSON.parse(localStorage.getItem('darkMode')) || false;
+if(darkMode)document.body.classList.add('dark-mode');
+
+// ---------- صفحات ----------
+function toggleMenu(){document.getElementById('sidebar').classList.toggle('open');}
+function showPage(id){
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    const page = document.getElementById(id);
+    if(!page) return;
+    page.classList.add('active');
+    document.getElementById('sidebar').classList.remove('open');
+    if(id==='inventory') renderInventory();
+    if(id==='reports') renderReports();
+    if(id==='products') renderProducts();
+}
+function backToDashboard(){showPage('dashboard');}
+
+// ---------- Toast ----------
+function showToast(msg){
+    let toast=document.getElementById('toast');
+    if(!toast) return;
+    toast.textContent=msg;
+    toast.classList.add('show');
+    setTimeout(()=>{toast.classList.remove('show');},2500);
+}
+
+// ---------- ذخیره ----------
+function saveData(){
+    // convert Date objects in logs to ISO strings for safe storage
+    const logsToStore = logs.map(l => ({...l, date: (l.date instanceof Date) ? l.date.toISOString() : l.date}));
+    localStorage.setItem('inventoryData',JSON.stringify(inventoryData));
+    localStorage.setItem('logs',JSON.stringify(logsToStore));
+    localStorage.setItem('darkMode',JSON.stringify(document.body.classList.contains('dark-mode')));
+}
+
+// ---------- مدیریت کالا ----------
+function addProduct(){
+    let name=document.getElementById('prod-name').value.trim();
+    let cat=document.getElementById('prod-cat').value.trim();
+    let priceRaw=document.getElementById('prod-price').value;
+    let price = parseInt(priceRaw);
+    if(isNaN(price)) price = 0;
+    let imgInput=document.getElementById('prod-img-file');
+    let img = '';
+    if(imgInput && imgInput.files && imgInput.files[0]){
+        let reader = new FileReader();
+        reader.onload = function(e){ 
+            img = e.target.result;
+            finalizeAdd(name,cat,price,img);
+        };
+        reader.readAsDataURL(imgInput.files[0]);
+    }else{
+        img = document.getElementById('prod-img').value.trim();
+        finalizeAdd(name,cat,price,img);
+    }
+}
+function finalizeAdd(name,cat,price,img){
+    let exp=document.getElementById('prod-exp') ? document.getElementById('prod-exp').value : '';
+    if(name && cat){
+        let id = 1;
+        if(inventoryData.length>0){
+            // ensure unique id even if some items were deleted
+            id = Math.max(...inventoryData.map(it=>it.id))+1;
+        }
+        inventoryData.push({id,name,category:cat,price: isNaN(price)?0:price,stock:0,img,exp,status:'فعال'});
+        saveData();
+        renderProducts();
+        renderInventory();
+        // clear inputs
+        if(document.getElementById('prod-name')) document.getElementById('prod-name').value='';
+        if(document.getElementById('prod-cat')) document.getElementById('prod-cat').value='';
+        if(document.getElementById('prod-price')) document.getElementById('prod-price').value='';
+        if(document.getElementById('prod-img')) document.getElementById('prod-img').value='';
+        if(document.getElementById('prod-exp')) document.getElementById('prod-exp').value='';
+        if(document.getElementById('prod-img-file')) document.getElementById('prod-img-file').value='';
+        showToast('کالا اضافه شد');
+    } else {
+        showToast('نام یا دسته کالا وارد نشده');
+    }
+}
+function deleteProduct(id){
+    if(!confirm('آیا مطمئن هستید؟')) return;
+    inventoryData=inventoryData.filter(p=>p.id!==id);
+    saveData();
+    renderProducts();
+    renderInventory();
+    renderReports();
+    showToast('کالا حذف شد');
+}
+function editProduct(id){
+    let prod=inventoryData.find(p=>p.id===id);
+    if(!prod) { showToast('کالا یافت نشد'); return; }
+    openModal(prod);
+}
+function renderProducts(filter=""){
+    let tbody=document.getElementById('prod-table-body');
+    if(!tbody) return;
+    tbody.innerHTML='';
+    const f = (filter||'').toString().trim().toLowerCase();
+    inventoryData.filter(p=>{
+        const name = (p.name||'').toString().toLowerCase();
+        const cat = (p.category||'').toString().toLowerCase();
+        return !f || name.includes(f) || cat.includes(f);
+    }).forEach(p=>{
+        const priceText = (typeof p.price === 'number' && !isNaN(p.price)) ? p.price.toLocaleString() : (p.price||'');
+        tbody.innerHTML+=`<tr>
+            <td>${p.id}</td>
+            <td style="display:flex;align-items:center;justify-content:center;">${p.img?'<img src="'+p.img+'" class="prod-img">':''} <span>${p.name}</span></td>
+            <td>${p.category}</td>
+            <td>${priceText}</td>
+            <td><button class="small" onclick="editProduct(${p.id})">ویرایش</button> <button class="small" onclick="deleteProduct(${p.id})">حذف</button></td>
+        </tr>`;
+    });
+}
+
+// ---------- ورودی/خروجی ----------
+function stockIn(){
+    let name=document.getElementById('stockin-name').value.trim();
+    let qty=parseInt(document.getElementById('stockin-qty').value);
+    if(isNaN(qty) || qty<=0){ showToast('مقدار نامعتبر'); return; }
+    let prod=inventoryData.find(p=>p.name===name);
+    if(prod){
+        prod.stock = (typeof prod.stock==='number'?prod.stock:0) + qty;
+        logs.push({type:'ورودی',name:prod.name,qty:qty,date:new Date().toISOString()});
+        saveData();renderInventory();renderLogs();
+        if(document.getElementById('stockin-name')) document.getElementById('stockin-name').value='';
+        if(document.getElementById('stockin-qty')) document.getElementById('stockin-qty').value='';
+        showToast('ورودی ثبت شد');
+    }else showToast('کالا یافت نشد');
+}
+function stockOut(){
+    let name=document.getElementById('stockout-name').value.trim();
+    let qty=parseInt(document.getElementById('stockout-qty').value);
+    if(isNaN(qty) || qty<=0){ showToast('مقدار نامعتبر'); return; }
+    let prod=inventoryData.find(p=>p.name===name);
+    if(prod && (typeof prod.stock==='number' ? prod.stock : 0) >= qty){
+        prod.stock -= qty;
+        logs.push({type:'خروجی',name:prod.name,qty:qty,date:new Date().toISOString()});
+        saveData();renderInventory();renderLogs();
+        if(document.getElementById('stockout-name')) document.getElementById('stockout-name').value='';
+        if(document.getElementById('stockout-qty')) document.getElementById('stockout-qty').value='';
+        showToast('خروجی ثبت شد');
+    }else showToast('کالا یافت نشد یا موجودی کافی نیست');
+}
+
+// ---------- موجودی ----------
+function renderInventory(filter=""){
+    let tbody=document.getElementById('inventory-body');
+    if(!tbody) return;
+    tbody.innerHTML='';
+    const f = (filter||'').toString().trim().toLowerCase();
+    inventoryData.filter(p=>{
+        const name = (p.name||'').toString().toLowerCase();
+        return !f || name.includes(f);
+    }).forEach(p=>{
+        let cls=''; if((typeof p.stock==='number' && p.stock<=5) || (!p.stock && p.stock!==0 && p.stock<=5)) cls='low-stock';
+        tbody.innerHTML+=`<tr class='${cls}'><td>${p.id}</td><td>${p.name}</td><td>${typeof p.stock==='number'?p.stock:0}</td><td>${p.exp||''}</td></tr>`;
+    });
+}
+
+// ---------- لاگ ----------
+function renderLogs(){
+    let inBody=document.getElementById('logs-in-body');
+    let outBody=document.getElementById('logs-out-body');
+    if(!inBody||!outBody) return;
+    inBody.innerHTML=''; outBody.innerHTML='';
+    // ensure date strings are rendered properly
+    logs.filter(l=>l.type==='ورودی').slice(-5).reverse().forEach(l=>{
+        let dateStr = l.date ? new Date(l.date).toLocaleString() : '';
+        inBody.innerHTML+=`<tr><td>${dateStr}</td><td>${l.name}</td><td>${l.qty}</td></tr>`;
+    });
+    logs.filter(l=>l.type==='خروجی').slice(-5).reverse().forEach(l=>{
+        let dateStr = l.date ? new Date(l.date).toLocaleString() : '';
+        outBody.innerHTML+=`<tr><td>${dateStr}</td><td>${l.name}</td><td>${l.qty}</td></tr>`;
+    });
+}
+
+// ---------- گزارش ----------
+function renderReports(){
+    const canvas = document.getElementById('chart');
+    if(!canvas) return;
+    let ctx = canvas.getContext('2d');
+    let labels = inventoryData.map(p=>p.name);
+    let data = inventoryData.map(p=>typeof p.stock==='number'?p.stock:0);
+    if(window.myChart) try{ window.myChart.destroy(); }catch(e){}
+    window.myChart = new Chart(ctx,{
+        type:'bar',
+        data:{labels:labels,datasets:[{label:'موجودی',data:data,backgroundColor:labels.map(()=> 'rgba(13,71,161,0.7)')} ]},
+        options:{responsive:true,plugins:{legend:{display:false}}}
+    });
+}
+
+// ---------- Modal ----------
+function openModal(prod){
+    let bg=document.getElementById('modal-bg'); if(!bg) return;
+    bg.style.display='flex';
+    document.getElementById('modal-name').value=prod.name||'';
+    document.getElementById('modal-cat').value=prod.category||'';
+    document.getElementById('modal-price').value=prod.price||'';
+    document.getElementById('modal-img').value=prod.img||'';
+    document.getElementById('modal-exp').value=prod.exp||'';
+    const saveBtn = document.getElementById('modal-save');
+    if(!saveBtn) return;
+    saveBtn.onclick = function(){
+        const newName = document.getElementById('modal-name').value.trim();
+        const newCat = document.getElementById('modal-cat').value.trim();
+        let newPrice = parseInt(document.getElementById('modal-price').value);
+        if(isNaN(newPrice)) newPrice = 0;
+        prod.name = newName || prod.name;
+        prod.category = newCat || prod.category;
+        prod.price = newPrice;
+        prod.img = document.getElementById('modal-img').value.trim();
+        prod.exp = document.getElementById('modal-exp').value;
+        saveData(); renderProducts(); renderInventory(); renderReports();
+        bg.style.display='none';
+        showToast('ویرایش انجام شد');
+    };
+}
+function closeModal(){ const bg=document.getElementById('modal-bg'); if(bg) bg.style.display='none';}
+function toggleDarkMode(){document.body.classList.toggle('dark-mode'); saveData();}
+
+// Safe initial renders (only if elements exist)
+window.addEventListener('load',()=>{
+    try{ renderProducts(); }catch(e){}
+    try{ renderInventory(); }catch(e){}
+    try{ renderReports(); }catch(e){}
+    try{ renderLogs(); }catch(e){}
+});
+</script>
+</head>
+<body>
+
+<!-- LOADER -->
+<div id="loader">
+    <div class="loader-circle"></div>
+    <div class="loader-text">Storvix</div>
+</div>
+
+<script>
+window.onload = function(){
+    setTimeout(()=>{
+        document.getElementById('loader').style.opacity="0";
+        setTimeout(()=>{
+            document.getElementById('loader').remove();
+        },400);
+    },1800);
+}
+</script>
+
+<style>
+#loader{
+    position:fixed;
+    top:0;left:0;width:100%;height:100%;
+    background:#0d47a1;
+    display:flex;flex-direction:column;
+    justify-content:center;align-items:center;
+    z-index:9999;
+    transition:0.4s;
+}
+.loader-circle{
+    width:90px;height:90px;
+    border:6px solid rgba(255,255,255,0.3);
+    border-top-color:white;
+    border-radius:50%;
+    animation:spin 1.1s linear infinite;
+}
+@keyframes spin{
+    to{transform:rotate(360deg);}
+}
+.loader-text{
+    margin-top:18px;
+    font-size:22px;
+    font-weight:bold;
+    letter-spacing:2px;
+}
+</style>
+
+
+<div class="topbar">
+    <div class="topbar-title">پنل حرفه‌ای انبار من</div>
+    <span class="menu-btn" onclick="toggleMenu()">☰</span>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<div class="sidebar" id="sidebar">
+    <a href="#" onclick="showPage('dashboard')">صفحه اصلی</a>
+    <a href="#" onclick="showPage('products')">مدیریت کالا</a>
+    <a href="#" onclick="showPage('stockin')">ورودی انبار</a>
+    <a href="#" onclick="showPage('stockout')">خروجی انبار</a>
+    <a href="#" onclick="showPage('inventory')">موجودی</a>
+    <a href="#" onclick="showPage('reports')">گزارشات</a>
+</div>
+
+<!-- ---------- داشبورد ---------- -->
+<div class="page active" id="dashboard">
+<div class="container">
+<h2>صفحه اصلی</h2>
+<p>به سیستم حرفه‌ای انبارداری خوش آمدید.</p>
+<div class="cards">
+<div class="card" onclick="showPage('products')">مدیریت کالا</div>
+<div class="card" onclick="showPage('inventory')">موجودی انبار</div>
+<div class="card" onclick="showPage('stockin')">ورودی انبار</div>
+<div class="card" onclick="showPage('stockout')">خروجی انبار</div>
+<div class="card" onclick="showPage('reports')">گزارشات</div>
+<div class="card" onclick="toggleDarkMode()">تم شب/روز</div>
+</div>
+</div>
+</div>
+
+<!-- ---------- مدیریت کالا ---------- -->
+<div class="page" id="products">
+<div class="container">
+<button class="back-btn" onclick="backToDashboard()">بازگشت</button>
+<h2>مدیریت کالا</h2>
+<input id="prod-name" placeholder="نام کالا">
+<input id="prod-cat" placeholder="دسته بندی">
+<input id="prod-price" placeholder="قیمت">
+<input id="prod-img" placeholder="آدرس تصویر (URL)">
+<input id="prod-img-file" type="file" class="file-input">
+<input id="prod-exp" type="date" placeholder="تاریخ انقضا">
+<button onclick="addProduct()">ثبت کالا</button>
+<input class="search-input" placeholder="جستجوی کالا..." oninput="renderProducts(this.value)">
+<table>
+<thead><tr><th>#</th><th>نام</th><th>دسته</th><th>قیمت</th><th>عملیات</th></tr></thead>
+<tbody id="prod-table-body"></tbody>
+</table>
+</div>
+</div>
+
+<!-- ---------- ورودی انبار ---------- -->
+<div class="page" id="stockin">
+<div class="container">
+<button class="back-btn" onclick="backToDashboard()">بازگشت</button>
+<h2>ورودی انبار</h2>
+<input id="stockin-name" placeholder="نام کالا">
+<input id="stockin-qty" type="number" placeholder="مقدار ورودی">
+<button onclick="stockIn()">ثبت ورودی</button>
+<h3>آخرین ورودی‌ها</h3>
+<table>
+<tr><th>تاریخ</th><th>نام</th><th>مقدار</th></tr>
+<tbody id="logs-in-body"></tbody>
+</table>
+</div>
+</div>
+
+<!-- ---------- خروجی انبار ---------- -->
+<div class="page" id="stockout">
+<div class="container">
+<button class="back-btn" onclick="backToDashboard()">بازگشت</button>
+<h2>خروجی انبار</h2>
+<input id="stockout-name" placeholder="نام کالا">
+<input id="stockout-qty" type="number" placeholder="مقدار خروجی">
+<button onclick="stockOut()">ثبت خروجی</button>
+<h3>آخرین خروجی‌ها</h3>
+<table>
+<tr><th>تاریخ</th><th>نام</th><th>مقدار</th></tr>
+<tbody id="logs-out-body"></tbody>
+</table>
+</div>
+</div>
+
+<!-- ---------- موجودی ---------- -->
+<div class="page" id="inventory">
+<div class="container">
+<button class="back-btn" onclick="backToDashboard()">بازگشت</button>
+<h2>موجودی</h2>
+<input class="search-input" placeholder="جستجو در موجودی..." oninput="renderInventory(this.value)">
+<table>
+<thead><tr><th>#</th><th>نام</th><th>موجودی</th><th>انقضا</th></tr></thead>
+<tbody id="inventory-body"></tbody>
+</table>
+</div>
+</div>
+
+<!-- ---------- گزارش ---------- -->
+<div class="page" id="reports">
+<div class="container">
+<button class="back-btn" onclick="backToDashboard()">بازگشت</button>
+<h2>گزارشات</h2>
+<canvas id="chart" height="120"></canvas>
+</div>
+</div>
+
+<!-- ---------- Modal برای ویرایش ---------- -->
+<div class="modal-bg" id="modal-bg" onclick="if(event.target.id==='modal-bg') closeModal()">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+        <h3 id="edit-title">ویرایش کالا</h3>
+        <input id="modal-name" placeholder="نام کالا">
+        <input id="modal-cat" placeholder="دسته بندی">
+        <input id="modal-price" placeholder="قیمت">
+        <input id="modal-img" placeholder="آدرس تصویر">
+        <input id="modal-exp" type="date" placeholder="تاریخ انقضا">
+        <button id="modal-save">ذخیره تغییرات</button>
+        <button onclick="closeModal()" style="margin-top:6px;background:#999;">انصراف</button>
+    </div>
+</div>
+
+</body>
+</html>
